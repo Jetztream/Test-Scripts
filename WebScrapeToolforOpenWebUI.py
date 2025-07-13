@@ -20,6 +20,8 @@ import unicodedata
 from pydantic import BaseModel, Field
 import asyncio
 from typing import Callable, Any
+import socket
+import ipaddress
 
 
 class HelpFunctions:
@@ -46,10 +48,46 @@ class HelpFunctions:
     def remove_emojis(self, text):
         return "".join(c for c in text if not unicodedata.category(c).startswith("So"))
 
+    def is_url_safe(self, url):
+        """
+        Prevent SSRF by blocking localhost, private, and reserved IPs.
+        """
+        try:
+            parsed = urlparse(url)
+            hostname = parsed.hostname
+            if not hostname:
+                return False
+            # Block localhost and loopback
+            if hostname in ["localhost", "127.0.0.1", "::1"]:
+                return False
+            # Resolve hostname to IP and check if it's private/reserved
+            ip = socket.gethostbyname(hostname)
+            ip_obj = ipaddress.ip_address(ip)
+            if (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_reserved
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+            ):
+                return False
+            return True
+        except Exception:
+            return False
+
     def process_search_result(self, result, valves):
         title_site = self.remove_emojis(result["title"])
         url_site = result["url"]
         snippet = result.get("content", "")
+
+        # SSRF protection
+        if not self.is_url_safe(url_site):
+            return {
+                "title": title_site,
+                "url": url_site,
+                "content": "Blocked by SSRF protection.",
+                "snippet": self.remove_emojis(snippet),
+            }
 
         # Check if the website is in the ignored list, but only if IGNORED_WEBSITES is not empty
         if valves.IGNORED_WEBSITES:
@@ -245,6 +283,21 @@ class Tools:
         await emitter.emit(f"Fetching content from URL: {url}")
 
         results_json = []
+
+        # SSRF protection
+        if not functions.is_url_safe(url):
+            results_json.append(
+                {
+                    "url": url,
+                    "content": "Blocked by SSRF protection.",
+                }
+            )
+            await emitter.emit(
+                status="error",
+                description="Blocked by SSRF protection.",
+                done=True,
+            )
+            return json.dumps(results_json, ensure_ascii=False)
 
         try:
             response_site = requests.get(url, headers=self.headers, timeout=120)
