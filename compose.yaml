@@ -8,7 +8,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - OLLAMA_API_URL=http://ollama:11434
       - LOG_LEVEL=debug
-      - WEBUI_SECRET_KEY=Energon!Core#1  # Add this to prevent logouts after updates
+      - WEBUI_SECRET_KEY=TASEDEWIIJEND1123E@  # Add this to prevent logouts after updates
     volumes:
       - data:/data
       - models:/models
